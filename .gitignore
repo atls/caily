@@ -1,0 +1,68 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyo
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- IDE / Editors ---
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- OS ---
+.DS_Store
+Thumbs.db
+
+# --- Logs and temp ---
+*.log
+*.out
+*.tmp
+*.bak
+
+# --- Build / packaging ---
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Database / local data ---
+data/
+*.db
+*.sqlite3
+
+# --- Cache ---
+.cache/
+.mypy_cache/
+.pytest_cache/
+__pypackages__/
+
+# --- Environment variables ---
+.env
+.env.*
+
+# --- Coverage / testing ---
+.coverage
+htmlcov/
+coverage.xml
+test-results/
+
+# --- Docker ---
+docker-compose.override.yml
+*.pid
+
+# --- FastAPI / Uvicorn run artifacts ---
+*.pid
+*.sock
+
+# --- VSCode workspace settings ---
+*.code-workspace
+
+# --- Local notebooks ---
+*.ipynb_checkpoints
