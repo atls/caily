@@ -2,7 +2,7 @@ from datetime import date, datetime, time
 from typing import Optional, Dict, Any, List
 import os
 
-from fastapi import APIRouter, Query
+from fastapi import APIRouter, Query, Depends, Request
 from sqlmodel import Session, select, create_engine
 
 from fastapi import Body
@@ -10,7 +10,9 @@ from fastapi import HTTPException
 
 from passlib.hash import bcrypt
 
-from .auth import create_access_token
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from jose import jwt
+from .auth import create_access_token, settings
 
 from .models import (
     User, Goal, GoalType, MealLog, WaterLog, WeightLog, OnboardingSubmission, SQLModel
@@ -192,21 +194,28 @@ def get_dashboard(date_: Optional[date] = Query(default=None, alias="date")) -> 
 # ======================================================
 
 
+security = HTTPBearer()
+
 @router.post("/api/water")
 def add_water_log(
-    user_id: int = Body(..., embed=True),
     ml: int = Body(..., embed=True),
-    drank_at: Optional[datetime] = Body(None, embed=True)
+    drank_at: Optional[datetime] = Body(None, embed=True),
+    credentials: HTTPAuthorizationCredentials = Depends(security)
 ) -> Dict[str, Any]:
     """
     Add a new water log entry.
 
-    - **user_id**: int, required. User ID.
     - **ml**: int, required. Amount of water in milliliters.
     - **drank_at**: datetime, optional. When the water was consumed. Defaults to now.
 
     Returns: status, id, ml, drank_at.
     """
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = int(payload['sub'])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
     with Session(engine) as session:
         log = WaterLog(
             user_id=user_id,
