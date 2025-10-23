@@ -5,6 +5,13 @@ import os
 from fastapi import APIRouter, Query
 from sqlmodel import Session, select, create_engine
 
+from fastapi import Body
+from fastapi import HTTPException
+
+from passlib.hash import bcrypt
+
+from .auth import create_access_token
+
 from .models import (
     User, Goal, GoalType, MealLog, WaterLog, WeightLog, OnboardingSubmission, SQLModel
 )
@@ -181,63 +188,99 @@ def get_dashboard(date_: Optional[date] = Query(default=None, alias="date")) -> 
 
 
 # ======================================================
+#  Water logging
+# ======================================================
+
+
+@router.post("/api/water")
+def add_water_log(
+    user_id: int = Body(..., embed=True),
+    ml: int = Body(..., embed=True),
+    drank_at: Optional[datetime] = Body(None, embed=True)
+) -> Dict[str, Any]:
+    """
+    Add a new water log entry.
+
+    - **user_id**: int, required. User ID.
+    - **ml**: int, required. Amount of water in milliliters.
+    - **drank_at**: datetime, optional. When the water was consumed. Defaults to now.
+
+    Returns: status, id, ml, drank_at.
+    """
+    with Session(engine) as session:
+        log = WaterLog(
+            user_id=user_id,
+            ml=ml,
+            drank_at=drank_at or datetime.utcnow()
+        )
+        session.add(log)
+        session.commit()
+        session.refresh(log)
+        return {
+            "status": "ok",
+            "id": log.id,
+            "ml": log.ml,
+            "drank_at": log.drank_at
+        }
+
+
+@router.delete("/api/water/{log_id}")
+def delete_water_log(log_id: int) -> Dict[str, Any]:
+    """
+    Delete a water log entry by ID.
+
+    - **log_id**: int, required. WaterLog ID.
+
+    Returns: status, id.
+    """
+    with Session(engine) as session:
+        log = session.get(WaterLog, log_id)
+        if log is None:
+            return {"status": "not_found", "id": log_id}
+        session.delete(log)
+        session.commit()
+        return {"status": "deleted", "id": log_id}
+
+
+# ======================================================
 #  Onboarding
 # ======================================================
 
 @router.post("/api/onboarding/submit", response_model=OnboardingSubmitResponse)
 def submit_onboarding(payload: OnboardingSubmitRequest) -> OnboardingSubmitResponse:
-    """
-    Submit onboarding data (from front-end form).
-
-    ### Example JSON body:
-    ```json
-    {
-      "user_id": 1,
-      "profile": {
-        "gender": "male",
-        "age": 34,
-        "height_cm": 182,
-        "weight_kg": 78
-      },
-      "goal": {
-        "goal_type": "lose",
-        "target_weight_kg": 72
-      },
-      "experience": {
-        "counted_calories_before": true,
-        "training_frequency": "3-5_per_week",
-        "steps_per_day": 8000,
-        "work_type": "sedentary"
-      },
-      "meta": {
-        "promo_code": "FIT2025",
-        "app_version": "1.0.0",
-        "device_type": "ios",
-        "locale": "ru"
-      },
-      "macros": {
-        "target_calories": 2200,
-        "protein_g": 150,
-        "fat_g": 70,
-        "carbs_g": 250,
-        "fiber_g": 30,
-        "sugar_g": 35
-      }
-    }
-    ```
-
-    ### Example cURL:
-    ```bash
-    curl -X POST http://127.0.0.1:8000/api/onboarding/submit \
-      -H "Content-Type: application/json" \
-      -d @onboarding.json
-    ```
-    """
+    """Submit onboarding data (from front-end form)."""
     with Session(engine) as session:
+        # --- User registration during onboarding ---
+        existing_user = session.exec(select(User).where(User.name == payload.auth.name)).first()
+        if existing_user:
+            raise HTTPException(status_code=409, detail="Username already taken. Please choose another name.")
+
+        new_user = User(
+            name=payload.auth.name,
+            password_hash=bcrypt.hash(payload.auth.password[:72]),
+            avatar_id=payload.auth.avatar_id,
+            gender=payload.profile.gender,
+            age=payload.profile.age,
+            height_cm=payload.profile.height_cm,
+            start_weight_kg=payload.profile.weight_kg
+        )
+        session.add(new_user)
+        session.commit()
+        session.refresh(new_user)
+        user_id = new_user.id
+
+        token = create_access_token({"sub": str(new_user.id)})
+
+        # --- Sanitize payload before storing (remove password from auth) ---
+        sanitized_data = payload.dict()
+        if sanitized_data.get("auth"):
+            sanitized_data["auth"].pop("password", None)
+
+        # --- Save onboarding ---
         onboarding = OnboardingSubmission(
-            user_id=payload.user_id,
+            user_id=user_id,
             submitted_at=datetime.utcnow(),
-            data=payload.dict(),
+            data=sanitized_data,
             gender=payload.profile.gender,
             age=payload.profile.age,
             height_cm=payload.profile.height_cm,
@@ -263,8 +306,9 @@ def submit_onboarding(payload: OnboardingSubmitRequest) -> OnboardingSubmitRespo
         session.commit()
         session.refresh(onboarding)
 
+        # --- Create goal ---
         goal = Goal(
-            user_id=payload.user_id,
+            user_id=user_id,
             goal_type=payload.goal.goal_type or GoalType.maintain,
             calories_kcal=payload.macros.target_calories or 0,
             protein_g=payload.macros.protein_g or 0,
@@ -277,25 +321,16 @@ def submit_onboarding(payload: OnboardingSubmitRequest) -> OnboardingSubmitRespo
         session.commit()
         session.refresh(goal)
 
-        user = session.exec(select(User).where(User.id == payload.user_id)).first()
-        if user:
-            user.gender = payload.profile.gender
-            user.age = payload.profile.age
-            user.height_cm = payload.profile.height_cm
-            user.current_weight_kg = payload.profile.weight_kg
-            user.current_goal_id = goal.id
-            user.updated_at = datetime.utcnow()
-            session.add(user)
-            session.commit()
+        # --- Update user goal linkage ---
+        new_user.current_goal_id = goal.id
+        new_user.updated_at = datetime.utcnow()
+        session.add(new_user)
+        session.commit()
 
         return OnboardingSubmitResponse(
             status="ok",
-            user_id=payload.user_id,
-            goal_id=goal.id,
-            created_at=onboarding.submitted_at,
-            message="Onboarding data saved successfully"
+            token=token,
+            message="Onboarding completed successfully"
         )
-
-
 # init DB on import
-init_db_with_seed()
+#init_db_with_seed()

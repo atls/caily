@@ -14,6 +14,10 @@ class User(SQLModel, table=True):
     id: Optional[int] = SQLField(default=None, primary_key=True)
     name: str
 
+    # --- аутентификация ---
+    password_hash: str
+    avatar_id: Optional[str] = None
+
     # --- профиль ---
     gender: Optional[str] = None              # male / female / other
     age: Optional[int] = None

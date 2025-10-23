@@ -98,21 +98,25 @@ class OnboardingMacros(BaseModel):
     sugar_g: Optional[int]
 
 
+class AuthBlock(BaseModel):
+    name: str
+    password: str
+    avatar_id: Optional[str] = None
+
+
 class OnboardingSubmitRequest(BaseModel):
-    """Запрос от фронта при финальном сабмите онбординга"""
-    user_id: int
+    """Запрос от фронта при отправке онбординга (регистрация + профиль + цели)"""
+    auth: AuthBlock  # логин, пароль, аватар
     profile: OnboardingProfile
     goal: OnboardingGoal
     experience: OnboardingExperience
     meta: Optional[OnboardingMeta] = None
     macros: OnboardingMacros
-    data: Optional[Dict[str, Any]] = None  # оригинальный payload (если фронт его шлёт целиком)
+    data: Optional[Dict[str, Any]] = None  # полный JSON с фронта (если нужен для аналитики)
 
 
 class OnboardingSubmitResponse(BaseModel):
-    """Ответ сервера после сохранения онбординга"""
-    status: str
-    user_id: int
-    goal_id: Optional[int] = None
-    created_at: datetime
+    """Ответ после онбординга: токен, статус операции и сообщение"""
+    status: str = "ok"
+    token: Optional[str] = None
     message: Optional[str] = None
