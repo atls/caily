@@ -5,9 +5,13 @@ import os
 from fastapi import APIRouter, Query
 from sqlmodel import Session, select, create_engine
 
-from .models import User, Goal, GoalType, MealLog, WaterLog, WeightLog, SQLModel
-from .schemas import DashboardResponse, Targets, MealItem, WaterItem, WeightBlock, Totals
-
+from .models import (
+    User, Goal, GoalType, MealLog, WaterLog, WeightLog, OnboardingSubmission, SQLModel
+)
+from .schemas import (
+    DashboardResponse, Targets, MealItem, WaterItem, WeightBlock, Totals,
+    OnboardingSubmitRequest, OnboardingSubmitResponse
+)
 
 router = APIRouter()
 
@@ -16,13 +20,17 @@ os.makedirs("data", exist_ok=True)
 engine = create_engine("sqlite:///./data/calorie_tracker.db", echo=False)
 
 
+# ======================================================
+#  DB seed
+# ======================================================
+
 def init_db_with_seed() -> None:
     SQLModel.metadata.create_all(engine)
     with Session(engine) as session:
         if session.exec(select(User).where(User.id == 1)).first():
             return
 
-        user = User(id=1, name="Anton", start_weight_kg=78.0)
+        user = User(id=1, name="Anton", start_weight_kg=78.0, gender="male", height_cm=182, age=34)
         session.add(user)
 
         goal = Goal(
@@ -73,6 +81,10 @@ def init_db_with_seed() -> None:
         session.commit()
 
 
+# ======================================================
+#  Helpers
+# ======================================================
+
 def format_hhmm(dt: datetime) -> str:
     return dt.strftime("%H:%M")
 
@@ -89,13 +101,23 @@ def sum_macros(meals: List[MealLog]) -> Dict[str, float]:
     return total
 
 
+# ======================================================
+#  Healthcheck
+# ======================================================
+
 @router.get("/healthz")
 def healthz() -> Dict[str, Any]:
+    """Simple health check endpoint."""
     return {"status": "ok"}
 
 
+# ======================================================
+#  Dashboard
+# ======================================================
+
 @router.get("/api/dashboard", response_model=DashboardResponse)
 def get_dashboard(date_: Optional[date] = Query(default=None, alias="date")) -> DashboardResponse:
+    """Get nutrition dashboard for a specific date."""
     target_date = date_ or date.today()
     with Session(engine) as session:
         goal_obj = session.exec(select(Goal).where(Goal.user_id == 1).order_by(Goal.created_at.desc()).limit(1)).first()
@@ -155,6 +177,123 @@ def get_dashboard(date_: Optional[date] = Query(default=None, alias="date")) -> 
             water=water,
             weight=weight_block,
             totals=totals,
+        )
+
+
+# ======================================================
+#  Onboarding
+# ======================================================
+
+@router.post("/api/onboarding/submit", response_model=OnboardingSubmitResponse)
+def submit_onboarding(payload: OnboardingSubmitRequest) -> OnboardingSubmitResponse:
+    """
+    Submit onboarding data (from front-end form).
+
+    ### Example JSON body:
+    ```json
+    {
+      "user_id": 1,
+      "profile": {
+        "gender": "male",
+        "age": 34,
+        "height_cm": 182,
+        "weight_kg": 78
+      },
+      "goal": {
+        "goal_type": "lose",
+        "target_weight_kg": 72
+      },
+      "experience": {
+        "counted_calories_before": true,
+        "training_frequency": "3-5_per_week",
+        "steps_per_day": 8000,
+        "work_type": "sedentary"
+      },
+      "meta": {
+        "promo_code": "FIT2025",
+        "app_version": "1.0.0",
+        "device_type": "ios",
+        "locale": "ru"
+      },
+      "macros": {
+        "target_calories": 2200,
+        "protein_g": 150,
+        "fat_g": 70,
+        "carbs_g": 250,
+        "fiber_g": 30,
+        "sugar_g": 35
+      }
+    }
+    ```
+
+    ### Example cURL:
+    ```bash
+    curl -X POST http://127.0.0.1:8000/api/onboarding/submit \
+      -H "Content-Type: application/json" \
+      -d @onboarding.json
+    ```
+    """
+    with Session(engine) as session:
+        onboarding = OnboardingSubmission(
+            user_id=payload.user_id,
+            submitted_at=datetime.utcnow(),
+            data=payload.dict(),
+            gender=payload.profile.gender,
+            age=payload.profile.age,
+            height_cm=payload.profile.height_cm,
+            weight_kg=payload.profile.weight_kg,
+            goal_type=payload.goal.goal_type,
+            target_weight_kg=payload.goal.target_weight_kg,
+            counted_calories_before=payload.experience.counted_calories_before,
+            training_frequency=payload.experience.training_frequency,
+            steps_per_day=payload.experience.steps_per_day,
+            work_type=payload.experience.work_type,
+            promo_code=payload.meta.promo_code if payload.meta else None,
+            app_version=payload.meta.app_version if payload.meta else None,
+            device_type=payload.meta.device_type if payload.meta else None,
+            locale=payload.meta.locale if payload.meta else None,
+            target_calories=payload.macros.target_calories,
+            protein_g=payload.macros.protein_g,
+            fat_g=payload.macros.fat_g,
+            carbs_g=payload.macros.carbs_g,
+            fiber_g=payload.macros.fiber_g,
+            sugar_g=payload.macros.sugar_g,
+        )
+        session.add(onboarding)
+        session.commit()
+        session.refresh(onboarding)
+
+        goal = Goal(
+            user_id=payload.user_id,
+            goal_type=payload.goal.goal_type or GoalType.maintain,
+            calories_kcal=payload.macros.target_calories or 0,
+            protein_g=payload.macros.protein_g or 0,
+            fat_g=payload.macros.fat_g or 0,
+            carbs_g=payload.macros.carbs_g or 0,
+            fiber_g=payload.macros.fiber_g or 0,
+            sugar_g=payload.macros.sugar_g or 0,
+        )
+        session.add(goal)
+        session.commit()
+        session.refresh(goal)
+
+        user = session.exec(select(User).where(User.id == payload.user_id)).first()
+        if user:
+            user.gender = payload.profile.gender
+            user.age = payload.profile.age
+            user.height_cm = payload.profile.height_cm
+            user.current_weight_kg = payload.profile.weight_kg
+            user.current_goal_id = goal.id
+            user.updated_at = datetime.utcnow()
+            session.add(user)
+            session.commit()
+
+        return OnboardingSubmitResponse(
+            status="ok",
+            user_id=payload.user_id,
+            goal_id=goal.id,
+            created_at=onboarding.submitted_at,
+            message="Onboarding data saved successfully"
         )
 
 
