@@ -60,6 +60,73 @@ class DashboardResponse(BaseModel):
 
 
 # ======================================================
+#  Meal Drafts & Logs
+# ======================================================
+
+class MealMacros(BaseModel):
+    protein_g: float
+    fat_g: float
+    carbohydrates_g: float
+    sugar_g: Optional[float] = 0
+    fiber_g: Optional[float] = 0
+    salt_g: Optional[float] = 0
+    water_ml: Optional[float] = 0
+
+
+class MealDraftCreateRequest(BaseModel):
+    image_base64: Optional[str] = None  # картинка от пользователя
+    text_description: Optional[str] = None  # текстовое описание еды (если без фото или в дополнение)
+
+
+class MealDraftResponse(BaseModel):
+    status: str = "ok"
+    draft_id: int
+    suggestion: Dict[str, Any]  # данные от GPT для фронта (фильтрованные)
+
+
+class MacrosPayload(BaseModel):
+    protein_g: Optional[float] = None
+    fat_g: Optional[float] = None
+    carbohydrates_g: Optional[float] = None
+    sugar_g: Optional[float] = None
+    fiber_g: Optional[float] = None
+    salt_g: Optional[float] = None
+    water_ml: Optional[int] = None
+
+class ConfirmMealRequest(BaseModel):
+    # В path приходит draft_id; в body — только подтверждённые/изменённые поля
+    title: Optional[str] = None
+    total_kcal: Optional[float] = None
+    portion_weight_grams: Optional[float] = None
+    portion_weight_oz: Optional[float] = None
+    cooking_method: Optional[str] = None
+    macros: Optional[MacrosPayload] = None
+    satiety_hours: Optional[float] = None
+    ingredients_detected: Optional[List[str]] = None
+    time_of_day: Optional[str] = None
+    eaten_at: Optional[datetime] = None
+    location: Optional[str] = None
+    extra_data: Optional[Dict[str, Any]] = None
+
+class ConfirmMealResponse(BaseModel):
+    status: str = "ok"
+    meal_id: int
+    draft_id: int
+
+
+class MealLogResponse(BaseModel):
+    id: int
+    name: str
+    kcal: float
+    macros: MealMacros
+    eaten_at: datetime
+    time_of_day: Optional[str] = None
+    location: Optional[str] = None
+    draft_id: Optional[int] = None
+    status: str = "ok"
+
+
+# ======================================================
 #  Onboarding schemas
 # ======================================================
 

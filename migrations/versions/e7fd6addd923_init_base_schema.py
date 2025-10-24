@@ -1,19 +1,18 @@
 """init base schema
 
-Revision ID: 836bd4afa1e6
+Revision ID: e7fd6addd923
 Revises: 
-Create Date: 2025-10-23 18:17:24.623572
+Create Date: 2025-10-24 16:36:44.474442
 
 """
 from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-import sqlmodel
 
 
 # revision identifiers, used by Alembic.
-revision: str = '836bd4afa1e6'
+revision: str = 'e7fd6addd923'
 down_revision: Union[str, Sequence[str], None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -39,39 +38,65 @@ def upgrade() -> None:
     )
     op.create_index(op.f('ix_goal_created_at'), 'goal', ['created_at'], unique=False)
     op.create_index(op.f('ix_goal_user_id'), 'goal', ['user_id'], unique=False)
+    op.create_table('mealdraft',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
+    sa.Column('gpt_result', sa.JSON(), nullable=True),
+    sa.Column('visible_data', sa.JSON(), nullable=True),
+    sa.Column('status', sa.String(), nullable=False),
+    sa.PrimaryKeyConstraint('id')
+    )
+    op.create_index(op.f('ix_mealdraft_created_at'), 'mealdraft', ['created_at'], unique=False)
+    op.create_index(op.f('ix_mealdraft_status'), 'mealdraft', ['status'], unique=False)
+    op.create_index(op.f('ix_mealdraft_user_id'), 'mealdraft', ['user_id'], unique=False)
     op.create_table('meallog',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
+    sa.Column('draft_id', sa.Integer(), nullable=True),
     sa.Column('eaten_at', sa.DateTime(), nullable=False),
-    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+    sa.Column('name', sa.String(), nullable=False),
     sa.Column('kcal', sa.Float(), nullable=False),
     sa.Column('protein_g', sa.Float(), nullable=False),
     sa.Column('fat_g', sa.Float(), nullable=False),
     sa.Column('carbs_g', sa.Float(), nullable=False),
-    sa.Column('sugar_g', sa.Float(), nullable=False),
-    sa.Column('fiber_g', sa.Float(), nullable=False),
+    sa.Column('sugar_g', sa.Float(), nullable=True),
+    sa.Column('fiber_g', sa.Float(), nullable=True),
+    sa.Column('salt_g', sa.Float(), nullable=True),
+    sa.Column('water_ml', sa.Float(), nullable=True),
+    sa.Column('ingredients', sa.JSON(), nullable=True),
+    sa.Column('cooking_method', sa.String(), nullable=True),
+    sa.Column('portion_weight_grams', sa.Float(), nullable=True),
+    sa.Column('portion_weight_oz', sa.Float(), nullable=True),
+    sa.Column('satiety_hours', sa.Float(), nullable=True),
+    sa.Column('time_of_day', sa.String(), nullable=True),
+    sa.Column('location', sa.String(), nullable=True),
+    sa.Column('extra_data', sa.JSON(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=False),
     sa.PrimaryKeyConstraint('id')
     )
+    op.create_index(op.f('ix_meallog_created_at'), 'meallog', ['created_at'], unique=False)
+    op.create_index(op.f('ix_meallog_draft_id'), 'meallog', ['draft_id'], unique=False)
     op.create_index(op.f('ix_meallog_eaten_at'), 'meallog', ['eaten_at'], unique=False)
     op.create_index(op.f('ix_meallog_user_id'), 'meallog', ['user_id'], unique=False)
     op.create_table('onboardingsubmission',
     sa.Column('id', sa.Integer(), nullable=False),
     sa.Column('user_id', sa.Integer(), nullable=False),
     sa.Column('submitted_at', sa.DateTime(), nullable=False),
-    sa.Column('gender', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('gender', sa.String(), nullable=True),
     sa.Column('age', sa.Integer(), nullable=True),
     sa.Column('height_cm', sa.Integer(), nullable=True),
     sa.Column('weight_kg', sa.Float(), nullable=True),
     sa.Column('goal_type', sa.Enum('maintain', 'lose', 'gain', 'eat_healthy', name='goaltype'), nullable=True),
     sa.Column('target_weight_kg', sa.Float(), nullable=True),
     sa.Column('counted_calories_before', sa.Boolean(), nullable=True),
-    sa.Column('training_frequency', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('training_frequency', sa.String(), nullable=True),
     sa.Column('steps_per_day', sa.Integer(), nullable=True),
-    sa.Column('work_type', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('promo_code', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('app_version', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('device_type', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('locale', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('work_type', sa.String(), nullable=True),
+    sa.Column('promo_code', sa.String(), nullable=True),
+    sa.Column('app_version', sa.String(), nullable=True),
+    sa.Column('device_type', sa.String(), nullable=True),
+    sa.Column('locale', sa.String(), nullable=True),
     sa.Column('target_calories', sa.Integer(), nullable=True),
     sa.Column('protein_g', sa.Integer(), nullable=True),
     sa.Column('fat_g', sa.Integer(), nullable=True),
@@ -85,10 +110,10 @@ def upgrade() -> None:
     op.create_index(op.f('ix_onboardingsubmission_user_id'), 'onboardingsubmission', ['user_id'], unique=False)
     op.create_table('user',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('name', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('password_hash', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-    sa.Column('avatar_id', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-    sa.Column('gender', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+    sa.Column('name', sa.String(), nullable=False),
+    sa.Column('password_hash', sa.String(), nullable=False),
+    sa.Column('avatar_id', sa.String(), nullable=True),
+    sa.Column('gender', sa.String(), nullable=True),
     sa.Column('age', sa.Integer(), nullable=True),
     sa.Column('height_cm', sa.Integer(), nullable=True),
     sa.Column('current_weight_kg', sa.Float(), nullable=True),
@@ -136,7 +161,13 @@ def downgrade() -> None:
     op.drop_table('onboardingsubmission')
     op.drop_index(op.f('ix_meallog_user_id'), table_name='meallog')
     op.drop_index(op.f('ix_meallog_eaten_at'), table_name='meallog')
+    op.drop_index(op.f('ix_meallog_draft_id'), table_name='meallog')
+    op.drop_index(op.f('ix_meallog_created_at'), table_name='meallog')
     op.drop_table('meallog')
+    op.drop_index(op.f('ix_mealdraft_user_id'), table_name='mealdraft')
+    op.drop_index(op.f('ix_mealdraft_status'), table_name='mealdraft')
+    op.drop_index(op.f('ix_mealdraft_created_at'), table_name='mealdraft')
+    op.drop_table('mealdraft')
     op.drop_index(op.f('ix_goal_user_id'), table_name='goal')
     op.drop_index(op.f('ix_goal_created_at'), table_name='goal')
     op.drop_table('goal')

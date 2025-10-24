@@ -66,17 +66,36 @@ class Goal(SQLModel, table=True):
 # ======================================================
 
 class MealLog(SQLModel, table=True):
-    """Прием пищи"""
+    """Подтверждённый приём пищи (из драфта или вручную)"""
     id: Optional[int] = SQLField(default=None, primary_key=True)
     user_id: int = SQLField(index=True)
-    eaten_at: datetime = SQLField(index=True)
+    draft_id: Optional[int] = SQLField(default=None, index=True)  # связь с MealDraft
+
+    eaten_at: datetime = SQLField(default_factory=datetime.utcnow, index=True)
     name: str
+
+    # --- основные питательные данные ---
     kcal: float
     protein_g: float
     fat_g: float
     carbs_g: float
-    sugar_g: float
-    fiber_g: float
+    sugar_g: Optional[float] = 0
+    fiber_g: Optional[float] = 0
+    salt_g: Optional[float] = 0
+    water_ml: Optional[float] = 0
+
+    # --- состав и контекст ---
+    ingredients: Optional[list[str]] = SQLField(default=None, sa_column=Column(SA_JSON))
+    cooking_method: Optional[str] = None
+    portion_weight_grams: Optional[float] = None
+    portion_weight_oz: Optional[float] = None
+    satiety_hours: Optional[float] = None
+    time_of_day: Optional[str] = None      # morning / lunch / evening / snack
+    location: Optional[str] = None
+
+    # --- дополнительные данные ---
+    extra_data: Optional[dict] = SQLField(default=None, sa_column=Column(SA_JSON))
+    created_at: datetime = SQLField(default_factory=datetime.utcnow, index=True)
 
 
 class WaterLog(SQLModel, table=True):
@@ -135,3 +154,77 @@ class OnboardingSubmission(SQLModel, table=True):
 
     # --- оригинальный payload ---
     data: dict = SQLField(sa_column=Column(SA_JSON))
+
+
+# ======================================================
+#  Meal Drafts (GPT suggestions)
+# ======================================================
+
+class MealDraft(SQLModel, table=True):
+    """Черновик распознавания блюда (полный ответ GPT + видимые поля)
+
+    Поле `gpt_result` хранит исходный JSON, возвращённый моделью (ожидаемый формат):
+    {
+      "meals": [
+        {
+          "title": "Dish name or product (if known)",
+          "total_kcal": 0,
+          "portion_weight_grams": 0,
+          "portion_weight_oz": 0,
+          "cooking_method": "steamed",
+          "macros": {
+            "protein_g": 0,
+            "fat_g": 0,
+            "carbohydrates_g": 0,
+            "sugar_g": 0,
+            "fiber_g": 0,
+            "salt_g": 0,
+            "water_ml": 0
+          },
+          "satiety_hours": 0,
+          "ingredients_detected": [],
+          "time_of_day": "morning",
+          "date": "YYYY-MM-DD",
+          "time": "HH:MM",
+          "location": "home"
+        }
+      ],
+      "total": {
+        "total_kcal": 0,
+        "portion_weight_grams": 0,
+        "portion_weight_oz": 0,
+        "satiety_hours": 0,
+        "macros": {
+          "protein_g": 0,
+          "fat_g": 0,
+          "carbohydrates_g": 0,
+          "sugar_g": 0,
+          "fiber_g": 0,
+          "salt_g": 0,
+          "water_ml": 0
+        },
+        "macro_distribution_percent_weight": {
+          "protein_percent": 0,
+          "fat_percent": 0,
+          "carbohydrates_percent": 0
+        },
+        "macro_distribution_percent_kcal": {
+          "protein_percent": 0,
+          "fat_percent": 0,
+          "carbohydrates_percent": 0
+        }
+      }
+    }
+    """
+    id: Optional[int] = SQLField(default=None, primary_key=True)
+    user_id: int = SQLField(index=True)
+    created_at: datetime = SQLField(default_factory=datetime.utcnow, index=True)
+
+    # Полный ответ от GPT (как есть)
+    gpt_result: dict = SQLField(sa_column=Column(SA_JSON))
+
+    # Короткая сводка для UI (например, name/kcal/БЖУ)
+    visible_data: Optional[dict] = SQLField(default=None, sa_column=Column(SA_JSON))
+
+    # Статус жизненного цикла драфта
+    status: str = SQLField(default="pending", index=True)  # pending | confirmed | discarded
