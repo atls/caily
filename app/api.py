@@ -588,6 +588,57 @@ def confirm_meal_draft(
         return {"status": "ok", "meal_id": meal.id, "draft_id": draft.id}
 
 
+
+# ======================================================
+#  Delete Meal Log
+# ======================================================
+
+@router.delete("/api/meal/{meal_id}")
+def delete_meal_log(
+    meal_id: int,
+    delete_draft: bool = Query(True, description="Also soft-delete associated draft (set status='deleted'); defaults to true"),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Dict[str, Any]:
+    """
+    Delete a MealLog entry by ID.
+
+    - **meal_id**: int, required. MealLog ID.
+    - **delete_draft**: bool, optional (default: True). If True and the meal was created from a draft, mark the draft as 'deleted' too.
+
+    Returns:
+      - status: "deleted" | "not_found"
+      - meal_id
+      - (optional) draft_id, draft_status
+    """
+    # Auth
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = int(payload["sub"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    with Session(engine) as session:
+        meal = session.get(MealLog, meal_id)
+        if meal is None or meal.user_id != user_id:
+            return {"status": "not_found", "meal_id": meal_id}
+
+        draft_info: Dict[str, Any] = {}
+        if delete_draft and getattr(meal, "draft_id", None):
+            draft = session.get(MealDraft, meal.draft_id)
+            if draft and draft.user_id == user_id:
+                # soft-delete the draft to avoid FK issues and keep audit trail
+                draft.status = "deleted"
+                session.add(draft)
+                draft_info = {"draft_id": draft.id, "draft_status": "deleted"}
+
+        session.delete(meal)
+        session.commit()
+
+        resp: Dict[str, Any] = {"status": "deleted", "meal_id": meal_id}
+        resp.update(draft_info)
+        return resp
+
 # ======================================================
 #  Onboarding
 # ======================================================
