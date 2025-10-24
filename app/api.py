@@ -12,7 +12,8 @@ from passlib.hash import bcrypt
 
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt
-from .auth import create_access_token, settings
+from pydantic import BaseModel
+from .auth import create_access_token, settings, verify_user_credentials
 
 from .models import (
     User, Goal, GoalType, MealLog, WaterLog, WeightLog, OnboardingSubmission, SQLModel
@@ -119,6 +120,28 @@ def healthz() -> Dict[str, Any]:
     """Simple health check endpoint."""
     return {"status": "ok"}
 
+
+# ======================================================
+#  Auth
+# ======================================================
+
+class LoginRequest(BaseModel):
+    name: str
+    password: str
+
+class LoginResponse(BaseModel):
+    status: str = "ok"
+    token: str
+
+@router.post("/api/auth/login", response_model=LoginResponse)
+def login(payload: LoginRequest) -> LoginResponse:
+    """Login by name/password and get JWT token."""
+    with Session(engine) as session:
+        user = verify_user_credentials(session, payload.name, payload.password)
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid username or password")
+        token = create_access_token({"sub": str(user.id)})
+        return LoginResponse(status="ok", token=token)
 
 # ======================================================
 #  Dashboard
