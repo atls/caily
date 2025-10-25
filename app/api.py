@@ -30,6 +30,9 @@ from .config import settings
 
 router = APIRouter()
 
+# Shared HTTP Bearer auth dependency (used by multiple endpoints)
+security = HTTPBearer()
+
 # ensure ./data exists
 os.makedirs("data", exist_ok=True)
 engine = create_engine("sqlite:///./data/calorie_tracker.db", echo=False)
@@ -153,11 +156,24 @@ def login(payload: LoginRequest) -> LoginResponse:
 # ======================================================
 
 @router.get("/api/dashboard", response_model=DashboardResponse)
-def get_dashboard(date_: Optional[date] = Query(default=None, alias="date")) -> DashboardResponse:
-    """Get nutrition dashboard for a specific date."""
+def get_dashboard(
+    date_: Optional[date] = Query(default=None, alias="date"),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> DashboardResponse:
+    """Get nutrition dashboard for a specific date.
+
+    Auth: Requires Bearer JWT in `Authorization` header (e.g., `Authorization: Bearer <token>`).
+    """
     target_date = date_ or date.today()
+    # Auth: require bearer token to determine user_id
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = int(payload["sub"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
     with Session(engine) as session:
-        goal_obj = session.exec(select(Goal).where(Goal.user_id == 1).order_by(Goal.created_at.desc()).limit(1)).first()
+        goal_obj = session.exec(select(Goal).where(Goal.user_id == user_id).order_by(Goal.created_at.desc()).limit(1)).first()
         targets = None
         if goal_obj:
             targets = Targets(
@@ -170,11 +186,16 @@ def get_dashboard(date_: Optional[date] = Query(default=None, alias="date")) -> 
                 fiber_g=goal_obj.fiber_g,
             )
 
+        from sqlalchemy import func
+
+        # Отладочная печать всех записей
+        all_meals = list(session.exec(select(MealLog).where(MealLog.user_id == user_id)))
+
+        # Фильтрация по дате с использованием SQLite DATE()
         meals_rows = list(session.exec(
             select(MealLog)
-            .where((MealLog.user_id == 1) &
-                   (MealLog.eaten_at >= datetime.combine(target_date, time.min)) &
-                   (MealLog.eaten_at <= datetime.combine(target_date, time.max)))
+            .where((MealLog.user_id == user_id) &
+                   (func.date(MealLog.eaten_at) == str(target_date)))
             .order_by(MealLog.eaten_at.asc())
         ))
         meals = [MealItem(time=format_hhmm(m.eaten_at), name=m.name, kcal=m.kcal, protein_g=m.protein_g,
@@ -182,17 +203,17 @@ def get_dashboard(date_: Optional[date] = Query(default=None, alias="date")) -> 
 
         water_rows = list(session.exec(
             select(WaterLog)
-            .where((WaterLog.user_id == 1) &
+            .where((WaterLog.user_id == user_id) &
                    (WaterLog.drank_at >= datetime.combine(target_date, time.min)) &
                    (WaterLog.drank_at <= datetime.combine(target_date, time.max)))
             .order_by(WaterLog.drank_at.asc())
         ))
         water = [WaterItem(time=format_hhmm(w.drank_at), ml=w.ml) for w in water_rows]
 
-        user = session.exec(select(User).where(User.id == 1)).first()
+        user = session.exec(select(User).where(User.id == user_id)).first()
         start_weight = user.start_weight_kg if user else 0.0
         w_row = session.exec(select(WeightLog).where(
-            (WeightLog.user_id == 1) & (WeightLog.on_date == target_date)
+            (WeightLog.user_id == user_id) & (WeightLog.on_date == target_date)
         )).first()
         weight_block = WeightBlock(start_kg=start_weight, today_kg=w_row.kg if w_row else None)
 
@@ -220,9 +241,6 @@ def get_dashboard(date_: Optional[date] = Query(default=None, alias="date")) -> 
 # ======================================================
 #  Water logging
 # ======================================================
-
-
-security = HTTPBearer()
 
 @router.post("/api/water")
 def add_water_log(
