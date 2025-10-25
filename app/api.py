@@ -309,6 +309,162 @@ def delete_water_log(
 
 
 # ======================================================
+#  Weight logging
+# ======================================================
+
+@router.post("/api/weight")
+def add_weight_log(
+    kg: float = Body(..., embed=True),
+    on_date: Optional[date] = Body(None, embed=True),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Dict[str, Any]:
+    """
+    Create a new weight entry for the authenticated user.
+
+    Body (JSON):
+      - kg: float, required (> 0)
+      - on_date: date (YYYY-MM-DD), optional. Defaults to today's date.
+
+    Returns: {status, id, kg, on_date}
+    """
+    # Auth
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = int(payload["sub"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    if kg is None or kg <= 0:
+        raise HTTPException(status_code=422, detail="kg must be a positive number")
+
+    with Session(engine) as session:
+        entry = WeightLog(
+            user_id=user_id,
+            on_date=on_date or date.today(),
+            kg=float(kg),
+        )
+        session.add(entry)
+        session.commit()
+        session.refresh(entry)
+        return {
+            "status": "ok",
+            "id": entry.id,
+            "kg": entry.kg,
+            "on_date": entry.on_date,
+        }
+
+
+@router.get("/api/weight")
+def list_weight_logs(
+    date_from: Optional[date] = Query(None, description="Start date (YYYY-MM-DD), inclusive"),
+    date_to: Optional[date] = Query(None, description="End date (YYYY-MM-DD), inclusive"),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Dict[str, Any]:
+    """
+    Get all weight entries for the authenticated user.
+    Optional date range filter via query params `date_from` and/or `date_to`.
+
+    Returns: {status, items:[{id, on_date, kg}, ...]}
+    """
+    # Auth
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = int(payload["sub"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    with Session(engine) as session:
+        stmt = select(WeightLog).where(WeightLog.user_id == user_id)
+        if date_from:
+            stmt = stmt.where(WeightLog.on_date >= date_from)
+        if date_to:
+            stmt = stmt.where(WeightLog.on_date <= date_to)
+        stmt = stmt.order_by(WeightLog.on_date.asc())
+
+        rows = list(session.exec(stmt))
+        items = [{"id": w.id, "on_date": w.on_date, "kg": float(w.kg)} for w in rows]
+        return {"status": "ok", "items": items}
+
+
+@router.delete("/api/weight/{weight_id}")
+def delete_weight_log(
+    weight_id: int,
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Dict[str, Any]:
+    """
+    Delete a specific weight entry by ID.
+
+    Returns: {status: "deleted" | "not_found", id}
+    """
+    # Auth
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = int(payload["sub"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    with Session(engine) as session:
+        entry = session.get(WeightLog, weight_id)
+        if entry is None or entry.user_id != user_id:
+            return {"status": "not_found", "id": weight_id}
+        session.delete(entry)
+        session.commit()
+        return {"status": "deleted", "id": weight_id}
+
+
+@router.patch("/api/weight/{weight_id}")
+def update_weight_log(
+    weight_id: int,
+    kg: Optional[float] = Body(None, embed=True),
+    on_date: Optional[date] = Body(None, embed=True),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Dict[str, Any]:
+    """
+    Update a specific weight entry. Supply one or both of the fields.
+
+    Body (JSON):
+      - kg: float (> 0), optional
+      - on_date: date (YYYY-MM-DD), optional
+
+    Returns: {status, id, kg, on_date}
+    """
+    # Auth
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = int(payload["sub"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    if kg is None and on_date is None:
+        raise HTTPException(status_code=422, detail="Provide at least one of: kg, on_date")
+    if kg is not None and kg <= 0:
+        raise HTTPException(status_code=422, detail="kg must be a positive number")
+
+    with Session(engine) as session:
+        entry = session.get(WeightLog, weight_id)
+        if entry is None or entry.user_id != user_id:
+            raise HTTPException(status_code=404, detail="Weight entry not found")
+
+        if kg is not None:
+            entry.kg = float(kg)
+        if on_date is not None:
+            entry.on_date = on_date
+
+        session.add(entry)
+        session.commit()
+        session.refresh(entry)
+        return {
+            "status": "ok",
+            "id": entry.id,
+            "kg": entry.kg,
+            "on_date": entry.on_date,
+        }
+
+# ======================================================
 #  Meal Draft (photo + text -> GPT)
 # ======================================================
 
