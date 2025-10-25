@@ -465,6 +465,120 @@ def update_weight_log(
         }
 
 # ======================================================
+#  User profile editing
+# ======================================================
+
+@router.patch("/api/user")
+def update_user_and_goal(
+    name: Optional[str] = Body(None),
+    age: Optional[int] = Body(None),
+    gender: Optional[str] = Body(None),
+    height_cm: Optional[float] = Body(None),
+    start_weight_kg: Optional[float] = Body(None),
+    password: Optional[str] = Body(None),
+    goal_type: Optional[str] = Body(None),
+    calories_kcal: Optional[float] = Body(None),
+    protein_g: Optional[float] = Body(None),
+    fat_g: Optional[float] = Body(None),
+    carbs_g: Optional[float] = Body(None),
+    sugar_g: Optional[float] = Body(None),
+    fiber_g: Optional[float] = Body(None),
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+) -> Dict[str, Any]:
+    """
+    Update user and goal fields.
+
+    Accepts any subset of user or goal fields.
+    Requires Bearer JWT.
+    """
+    token = credentials.credentials
+    try:
+        payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.ALGORITHM])
+        user_id = int(payload["sub"])
+    except Exception:
+        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
+
+    with Session(engine) as session:
+        user = session.get(User, user_id)
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+
+        # Update user fields if provided
+        if name: user.name = name
+        if age: user.age = age
+        if gender: user.gender = gender
+        if height_cm: user.height_cm = height_cm
+        if start_weight_kg: user.start_weight_kg = start_weight_kg
+        if password: user.password_hash = bcrypt.hash(password[:72])
+
+        # Get the most recent goal
+        goal = session.exec(
+            select(Goal).where(Goal.user_id == user_id).order_by(Goal.created_at.desc()).limit(1)
+        ).first()
+
+        if not goal:
+            goal = Goal(
+                user_id=user_id,
+                goal_type=GoalType.maintain,
+                calories_kcal=0,
+                protein_g=0,
+                fat_g=0,
+                carbs_g=0,
+                sugar_g=0,
+                fiber_g=0,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+            session.add(goal)
+            session.commit()
+            session.refresh(goal)
+
+        # Update goal fields
+        if goal_type: goal.goal_type = goal_type
+        if calories_kcal is not None: goal.calories_kcal = calories_kcal
+        if protein_g is not None: goal.protein_g = protein_g
+        if fat_g is not None: goal.fat_g = fat_g
+        if carbs_g is not None: goal.carbs_g = carbs_g
+        if sugar_g is not None: goal.sugar_g = sugar_g
+        if fiber_g is not None: goal.fiber_g = fiber_g
+
+        # Update timestamps if fields exist
+        if hasattr(user, "updated_at"):
+            user.updated_at = datetime.utcnow()
+        if hasattr(goal, "updated_at"):
+            try:
+                goal.updated_at = datetime.utcnow()
+            except Exception:
+                pass
+
+        session.add(user)
+        session.add(goal)
+        session.commit()
+        session.refresh(user)
+        session.refresh(goal)
+
+        return {
+            "status": "ok",
+            "user": {
+                "id": user.id,
+                "name": user.name,
+                "age": user.age,
+                "gender": user.gender,
+                "height_cm": user.height_cm,
+                "start_weight_kg": user.start_weight_kg,
+            },
+            "goal": {
+                "goal_type": goal.goal_type,
+                "calories_kcal": goal.calories_kcal,
+                "protein_g": goal.protein_g,
+                "fat_g": goal.fat_g,
+                "carbs_g": goal.carbs_g,
+                "sugar_g": goal.sugar_g,
+                "fiber_g": goal.fiber_g,
+            },
+        }
+
+# ======================================================
 #  Meal Draft (photo + text -> GPT)
 # ======================================================
 
