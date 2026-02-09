@@ -1,0 +1,56 @@
+{
+    "expo": {
+        "name": "fitness-tracker-app",
+        "slug": "fitness-tracker-app",
+        "version": "1.0.0",
+        "orientation": "portrait",
+        "icon": "./assets/images/icon.png",
+        "scheme": "myapp",
+        "userInterfaceStyle": "automatic",
+        "newArchEnabled": true,
+        "ios": {
+            "supportsTablet": true,
+            "bundleIdentifier": "com.anonymous.fitnesstrackerapp"
+        },
+        "android": {
+            "adaptiveIcon": {
+                "foregroundImage": "./assets/images/adaptive-icon.png",
+                "backgroundColor": "#000000"
+            },
+            "splash": {
+                "image": "./assets/images/splash-icon-android.png",
+                "resizeMode": "cover",
+                "imageWidth": 2048
+            },
+            "package": "com.anonymous.fitnesstrackerapp"
+        },
+        "plugins": [
+            "expo-router",
+            [
+                "expo-splash-screen",
+                {
+                    "image": "./assets/images/splash-icon-android.png",
+                    "resizeMode": "cover",
+                    "imageWidth": 2048,
+
+                    "android": {
+                        "resizeMode": "cover",
+                        "image": "./assets/images/splash-icon-android.png",
+                        "imageWidth": 2048
+                    }
+                }
+            ]
+        ],
+        "experiments": {
+            "typedRoutes": true
+        },
+        "extra": {
+            "router": {
+                "origin": false
+            },
+            "eas": {
+                "projectId": "06a48da4-47b1-4051-8b92-6616a89c13aa"
+            }
+        }
+    }
+}
